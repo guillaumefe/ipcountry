@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global IP Lookup by Country with Logs</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f0f4f8;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .app-container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+            width: 600px;
+            text-align: center;
+            position: relative;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            margin-bottom: 20px;
+            color: #4CAF50;
+        }
+
+        select, button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+
+        button {
+            color: #fff;
+            background-color: #007BFF;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        #results {
+            margin-top: 20px;
+            text-align: left;
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.05);
+        }
+
+        #results ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        #results ul li {
+            background-color: #e3f2fd;
+            margin-bottom: 5px;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .error {
+            color: #f44336;
+            margin-top: 20px;
+        }
+
+        #copyBtn {
+            display: none;
+            padding: 5px 10px;
+            font-size: 0.9rem;
+            color: #fff;
+            background-color: #28a745;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #copyBtn:hover {
+            background-color: #218838;
+        }
+
+        #logContainer {
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #333;
+            color: #fff;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            text-align: left;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+        }
+
+        .log-info {
+            color: #17a2b8;
+        }
+
+        .log-warning {
+            color: #ffc107;
+        }
+
+        .log-error {
+            color: #dc3545;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        <h1>Global IP Lookup</h1>
+        <select id="countrySelect">
+            <option value="" selected disabled>Select a country</option>
+            <option value="AF">Afghanistan</option>
+            <option value="AL">Albania</option>
+            <option value="DZ">Algeria</option>
+            <option value="AR">Argentina</option>
+            <option value="AU">Australia</option>
+            <option value="BR">Brazil</option>
+            <option value="CA">Canada</option>
+            <option value="CN">China</option>
+            <option value="FR">France</option>
+            <option value="DE">Germany</option>
+            <option value="IN">India</option>
+            <option value="JP">Japan</option>
+            <option value="MX">Mexico</option>
+            <option value="NG">Nigeria</option>
+            <option value="RU">Russia</option>
+            <option value="SA">Saudi Arabia</option>
+            <option value="ZA">South Africa</option>
+            <option value="ES">Spain</option>
+            <option value="SE">Sweden</option>
+            <option value="GB">United Kingdom</option>
+            <option value="US">United States</option>
+        </select>
+        <div id="logContainer">Logs:</div>
+        <button id="copyBtn">Copy to Clipboard</button>
+        <div id="results"></div>
+        <div class="error" id="error"></div>
+    </div>
+
+    <script>
+        const countrySelect = document.getElementById('countrySelect');
+        const resultsDiv = document.getElementById('results');
+        const errorDiv = document.getElementById('error');
+        const copyBtn = document.getElementById('copyBtn');
+        const logContainer = document.getElementById('logContainer');
+
+        const BATCH_SIZE = 20;
+        let ipData = [];
+        let currentIndex = 0;
+
+        function logMessage(message, type = 'info') {
+            const logEntry = document.createElement('div');
+            logEntry.textContent = message;
+            logEntry.classList.add('log-entry');
+
+            switch (type) {
+                case 'error':
+                    logEntry.classList.add('log-error');
+                    break;
+                case 'warning':
+                    logEntry.classList.add('log-warning');
+                    break;
+                case 'info':
+                default:
+                    logEntry.classList.add('log-info');
+            }
+
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function fetchRIPERanges(countryCode) {
+            logMessage(`Fetching RIPE IP ranges for ${countryCode}...`, 'info');
+            const url = `https://stat.ripe.net/data/country-resource-list/data.json?resource=${countryCode}`;
+            return fetch(url)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('RIPE API failed');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.data && data.data.resources && data.data.resources.ipv4) {
+                        logMessage(`RIPE: Found ${data.data.resources.ipv4.length} IP ranges.`, 'info');
+                        return data.data.resources.ipv4.map(ip => ({ ip, source: 'RIPE' }));
+                    }
+                    return [];
+                });
+        }
+
+        function fetchBGPData(countryCode) {
+            logMessage(`Fetching BGPView IP data for ${countryCode}...`, 'info');
+            const bgpUrl = `https://api.bgpview.io/country/${countryCode}`;
+            return fetch(bgpUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('BGPView API failed');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.data && data.data.prefixes) {
+                        logMessage(`BGPView: Found ${data.data.prefixes.length} IP ranges.`, 'info');
+                        return data.data.prefixes.map(prefix => ({ ip: prefix.prefix, source: 'BGPView' }));
+                    }
+                    return [];
+                });
+        }
+
+        function fetchIPDenyData(countryCode) {
+            logMessage(`Fetching IPdeny data for ${countryCode}...`, 'info');
+            const url = `https://www.ipdeny.com/ipblocks/data/countries/${countryCode.toLowerCase()}.zone`;
+            return fetch(url)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('IPdeny API failed');
+                    }
+                    return response.text();
+                })
+                .then(data => {
+                    const ips = data.split('\n').filter(ip => ip.trim() !== '');
+                    logMessage(`IPdeny: Found ${ips.length} IP ranges.`, 'info');
+                    return ips.map(ip => ({ ip, source: 'IPdeny' }));
+                });
+        }
+
+        async function fetchAndConsolidateIPData(countryCode) {
+            let consolidatedMap = new Map();
+
+            async function fetchData() {
+                const promises = [
+                    fetchRIPERanges(countryCode).catch(e => { logMessage('RIPE NCC API failed'); return []; }),
+                    fetchBGPData(countryCode).catch(e => { logMessage('BGPView API failed'); return []; }),
+                    fetchIPDenyData(countryCode).catch(e => { logMessage('IPdeny API failed'); return []; })
+                ];
+
+                const results = await Promise.all(promises);
+                return results.flat();
+            }
+
+            const allIPs = await fetchData();
+
+            allIPs.forEach(({ ip, source }) => {
+                if (!consolidatedMap.has(ip)) {
+                    consolidatedMap.set(ip, source);
+                }
+            });
+
+            ipData = Array.from(consolidatedMap, ([ip, source]) => ({ ip, source }));
+            currentIndex = 0;
+            displayBatchOfIPs();
+        }
+
+        function displayBatchOfIPs() {
+            const listFragment = document.createDocumentFragment();
+            const batch = ipData.slice(currentIndex + BATCH_SIZE);
+
+            batch.forEach(({ ip, source }) => {
+                const listItem = document.createElement('li');
+                listItem.textContent = `${ip} (${source})`;
+                listFragment.appendChild(listItem);
+            });
+
+            resultsDiv.innerHTML = '<ul></ul>';
+            resultsDiv.querySelector('ul').appendChild(listFragment);
+
+            if (currentIndex + BATCH_SIZE < ipData.length) {
+                currentIndex += BATCH_SIZE;
+                copyBtn.style.display = 'inline-block';
+            } else {
+                copyBtn.style.display = 'none';
+            }
+        }
+
+        function copyToClipboard() {
+            const ipList = ipData.map(({ ip, source }) => `${ip} (${source})`).join('\n');
+            navigator.clipboard.writeText(ipList).then(() => {
+                logMessage('IP list copied to clipboard', 'info');
+            });
+        }
+
+        countrySelect.addEventListener('change', async () => {
+            const countryCode = countrySelect.value;
+            if (!countryCode) {
+                errorDiv.textContent = 'Please select a valid country.';
+                return;
+            }
+
+            errorDiv.textContent = '';
+            resultsDiv.innerHTML = '';
+            logContainer.innerHTML = '';
+            ipData = [];
+            copyBtn.style.display = 'none';
+
+            try {
+                await fetchAndConsolidateIPData(countryCode);
+            } catch (error) {
+                logMessage('Error fetching IP data: ' + error.message, 'error');
+            }
+        });
+
+        copyBtn.addEventListener('click', copyToClipboard);
+    </script>
+</body>
+</html>
